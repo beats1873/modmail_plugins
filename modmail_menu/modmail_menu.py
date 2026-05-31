@@ -176,7 +176,6 @@ class OptionCountView(discord.ui.View):
 # ── Dropdown + Submit button ──────────────────────────────────────────────────
 
 async def open_thread(interaction: discord.Interaction, chosen: dict):
-    """Shared logic for opening a thread, called from both select and submit."""
     bot = interaction.client
     user = interaction.user
 
@@ -190,6 +189,14 @@ async def open_thread(interaction: discord.Interaction, chosen: dict):
                 embed=err("Could not find you as a member of this server."),
                 ephemeral=True,
             )
+
+    # ── Block check ──────────────────────────────────────────────────────────
+    blocked = await bot.config.get("blocked")
+    if blocked and str(user.id) in blocked:
+        return await interaction.followup.send(
+            embed=err("You are unable to open a ticket at this time."),
+            ephemeral=True,
+        )
 
     category = None
     category_id = chosen.get("category_id")
