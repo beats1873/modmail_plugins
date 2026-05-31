@@ -40,6 +40,22 @@ def info(description: str, title: str = None, bot=None) -> discord.Embed:
     )
 
 
+# ── Block check helper ────────────────────────────────────────────────────────
+
+async def is_blocked(bot, user_id: int) -> bool:
+    """
+    Returns True if the user is blocked in Modmail's config.
+    Handles both async and non-async bot.config.get gracefully.
+    """
+    try:
+        blocked = bot.config.get("blocked")
+        if hasattr(blocked, "__await__"):
+            blocked = await blocked
+    except Exception:
+        return False
+    return bool(blocked and str(user_id) in blocked)
+
+
 # ── Modals ────────────────────────────────────────────────────────────────────
 
 class PanelSettingsModal(discord.ui.Modal, title="Panel Settings"):
@@ -151,7 +167,7 @@ class OptionModal(discord.ui.Modal, title="Add Option"):
 # ── Option count prompt view ──────────────────────────────────────────────────
 
 class OptionCountView(discord.ui.View):
-    """Presents buttons 1–10 and 11–25 ranges to pick the number of options."""
+    """Presents buttons 1–10 to pick the number of options."""
 
     def __init__(self):
         super().__init__(timeout=60)
@@ -176,8 +192,16 @@ class OptionCountView(discord.ui.View):
 # ── Dropdown + Submit button ──────────────────────────────────────────────────
 
 async def open_thread(interaction: discord.Interaction, chosen: dict):
+    """Shared logic for opening a thread, called from the submit button."""
     bot = interaction.client
     user = interaction.user
+
+    # ── Block check ──────────────────────────────────────────────────────────
+    if await is_blocked(bot, user.id):
+        return await interaction.followup.send(
+            embed=err("You are unable to open a ticket at this time."),
+            ephemeral=True,
+        )
 
     guild = bot.guild
     member = guild.get_member(user.id)
@@ -189,14 +213,6 @@ async def open_thread(interaction: discord.Interaction, chosen: dict):
                 embed=err("Could not find you as a member of this server."),
                 ephemeral=True,
             )
-
-    # ── Block check ──────────────────────────────────────────────────────────
-    blocked = await bot.config.get("blocked")
-    if blocked and str(user.id) in blocked:
-        return await interaction.followup.send(
-            embed=err("You are unable to open a ticket at this time."),
-            ephemeral=True,
-        )
 
     category = None
     category_id = chosen.get("category_id")
@@ -258,8 +274,15 @@ class ContactSelect(discord.ui.Select):
         self.options_config = options_config
 
     async def callback(self, interaction: discord.Interaction):
-        # Just acknowledge the selection — the submit button triggers the thread.
-        # Store the selected index on the view so the button can read it.
+        # Block check on selection so blocked users get instant feedback
+        # and can never reach the submit button successfully.
+        if await is_blocked(interaction.client, interaction.user.id):
+            return await interaction.response.send_message(
+                embed=err("You are unable to open a ticket at this time."),
+                ephemeral=True,
+            )
+
+        # Store selected index on the view for the submit button to read.
         self.view._selected_index = int(self.values[0])
         await interaction.response.defer()
 
@@ -275,6 +298,13 @@ class SubmitButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+
+        # Block check again on submit as a second line of defense.
+        if await is_blocked(interaction.client, interaction.user.id):
+            return await interaction.followup.send(
+                embed=err("You are unable to open a ticket at this time."),
+                ephemeral=True,
+            )
 
         selected_index = getattr(self.view, "_selected_index", None)
         if selected_index is None:
