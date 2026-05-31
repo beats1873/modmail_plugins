@@ -173,7 +173,62 @@ class OptionCountView(discord.ui.View):
         return callback
 
 
-# ── Dropdown ──────────────────────────────────────────────────────────────────
+# ── Dropdown + Submit button ──────────────────────────────────────────────────
+
+async def open_thread(interaction: discord.Interaction, chosen: dict):
+    """Shared logic for opening a thread, called from both select and submit."""
+    bot = interaction.client
+    user = interaction.user
+
+    guild = bot.guild
+    member = guild.get_member(user.id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user.id)
+        except discord.NotFound:
+            return await interaction.followup.send(
+                embed=err("Could not find you as a member of this server."),
+                ephemeral=True,
+            )
+
+    category = None
+    category_id = chosen.get("category_id")
+    if category_id:
+        category = discord.utils.get(
+            bot.modmail_guild.categories, id=int(category_id)
+        )
+
+    thread = await bot.threads.find(recipient=member)
+    if thread is None:
+        thread = await bot.threads.create(
+            member,
+            creator=member,
+            category=category,
+        )
+
+    await thread.wait_until_ready()
+
+    if thread.channel:
+        label = chosen["label"]
+        note = chosen.get("opening_message") or f"User selected topic: **{label}**"
+        await thread.channel.send(
+            embed=discord.Embed(
+                description=f"📋 {note}",
+                color=bot.main_color,
+            ).set_footer(text=f"Selected via panel: {label}")
+        )
+
+    await interaction.followup.send(
+        embed=discord.Embed(
+            description=(
+                f"Your thread has been opened under **{chosen['label']}**.\n"
+                f"Please check your DMs from this bot."
+            ),
+            color=discord.Color.green(),
+        ),
+        ephemeral=True,
+    )
+
 
 class ContactSelect(discord.ui.Select):
     def __init__(self, options_config: list, placeholder: str = "Select a topic..."):
@@ -196,66 +251,42 @@ class ContactSelect(discord.ui.Select):
         self.options_config = options_config
 
     async def callback(self, interaction: discord.Interaction):
+        # Just acknowledge the selection — the submit button triggers the thread.
+        # Store the selected index on the view so the button can read it.
+        self.view._selected_index = int(self.values[0])
+        await interaction.response.defer()
+
+
+class SubmitButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="Open Thread",
+            style=discord.ButtonStyle.green,
+            custom_id="modmail_menu:submit",
+            emoji="📩",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        chosen = self.options_config[int(self.values[0])]
-        bot = interaction.client
-        user = interaction.user
-
-        guild = bot.guild
-        member = guild.get_member(user.id)
-        if member is None:
-            try:
-                member = await guild.fetch_member(user.id)
-            except discord.NotFound:
-                return await interaction.followup.send(
-                    embed=err("Could not find you as a member of this server."),
-                    ephemeral=True,
-                )
-
-        category = None
-        category_id = chosen.get("category_id")
-        if category_id:
-            category = discord.utils.get(
-                bot.modmail_guild.categories, id=int(category_id)
+        selected_index = getattr(self.view, "_selected_index", None)
+        if selected_index is None:
+            return await interaction.followup.send(
+                embed=err("Please select a topic from the dropdown first."),
+                ephemeral=True,
             )
 
-        thread = await bot.threads.find(recipient=member)
-        if thread is None:
-            thread = await bot.threads.create(
-                member,
-                creator=member,
-                category=category,
-            )
-
-        await thread.wait_until_ready()
-
-        if thread.channel:
-            label = chosen["label"]
-            note = chosen.get("opening_message") or f"User selected topic: **{label}**"
-            await thread.channel.send(
-                embed=discord.Embed(
-                    description=f"📋 {note}",
-                    color=bot.main_color,
-                ).set_footer(text=f"Selected via panel: {label}")
-            )
-
-        await interaction.followup.send(
-            embed=discord.Embed(
-                description=(
-                    f"Your thread has been opened under **{chosen['label']}**.\n"
-                    f"Please check your DMs from this bot."
-                ),
-                color=discord.Color.green(),
-            ),
-            ephemeral=True,
-        )
+        chosen = self.view.options_config[selected_index]
+        await open_thread(interaction, chosen)
 
 
 class ContactView(discord.ui.View):
     def __init__(self, options_config: list, placeholder: str = "Select a topic..."):
         super().__init__(timeout=None)
+        self.options_config = options_config
+        self._selected_index = None
         self.add_item(ContactSelect(options_config, placeholder))
+        self.add_item(SubmitButton())
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
