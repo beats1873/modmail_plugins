@@ -32,7 +32,7 @@ def err(description: str) -> discord.Embed:
 
 
 def info(description: str, title: str = None, bot=None) -> discord.Embed:
-    """Neutral info embed for wizard steps."""
+    """Neutral info embed."""
     return discord.Embed(
         title=title,
         description=description,
@@ -40,9 +40,9 @@ def info(description: str, title: str = None, bot=None) -> discord.Embed:
     )
 
 
-# ── Modal ─────────────────────────────────────────────────────────────────────
+# ── Modals ────────────────────────────────────────────────────────────────────
 
-class PanelEditModal(discord.ui.Modal, title="Edit Panel"):
+class PanelSettingsModal(discord.ui.Modal, title="Panel Settings"):
     panel_title = discord.ui.TextInput(
         label="Title",
         placeholder="e.g. Contact Support",
@@ -68,32 +68,109 @@ class PanelEditModal(discord.ui.Modal, title="Edit Panel"):
         required=False,
     )
 
-    def __init__(self, current: dict):
+    def __init__(self, current: dict = None):
         super().__init__()
-        self.panel_title.default = current.get("title", "")
-        self.description.default = current.get("description", "")
-        self.embed_color.default = current.get("embed_color", "")
-        self.placeholder_text.default = current.get("placeholder_text", "Select a topic...")
+        if current:
+            self.panel_title.default = current.get("title", "")
+            self.description.default = current.get("description", "")
+            self.embed_color.default = current.get("embed_color", "")
+            self.placeholder_text.default = current.get("placeholder_text", "Select a topic...")
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        self._values = {
-            "title": self.panel_title.value,
-            "description": self.description.value,
-            "embed_color": self.embed_color.value.strip() or None,
-            "placeholder_text": self.placeholder_text.value.strip() or "Select a topic...",
-        }
-        if self._values["embed_color"] and parse_color(self._values["embed_color"]) is None:
+        color_raw = self.embed_color.value.strip() or None
+        if color_raw and parse_color(color_raw) is None:
             await interaction.followup.send(
-                embed=err("Invalid hex color — changes not saved. Use format `#rrggbb`."),
+                embed=err("Invalid hex color — use format `#rrggbb`."),
                 ephemeral=True,
             )
             self._values = None
             return
-        await interaction.followup.send(
-            embed=ok("Panel settings updated."),
-            ephemeral=True,
-        )
+        self._values = {
+            "title": self.panel_title.value,
+            "description": self.description.value,
+            "embed_color": color_raw,
+            "placeholder_text": self.placeholder_text.value.strip() or "Select a topic...",
+        }
+
+
+class OptionModal(discord.ui.Modal, title="Add Option"):
+    label_input = discord.ui.TextInput(
+        label="Label",
+        placeholder="e.g. Bug Report",
+        max_length=100,
+        required=True,
+    )
+    description_input = discord.ui.TextInput(
+        label="Description",
+        placeholder="Short subtitle shown under the label (optional)",
+        max_length=100,
+        required=False,
+    )
+    emoji_input = discord.ui.TextInput(
+        label="Emoji",
+        placeholder="e.g. 🐛  —  leave blank for none",
+        max_length=64,
+        required=False,
+    )
+    opening_message_input = discord.ui.TextInput(
+        label="Opening Message (mod channel note)",
+        placeholder="e.g. User is reporting a bug. Leave blank for default.",
+        style=discord.TextStyle.paragraph,
+        max_length=1000,
+        required=False,
+    )
+    category_id_input = discord.ui.TextInput(
+        label="Category ID",
+        placeholder="Route to a specific category ID, or leave blank for default",
+        max_length=20,
+        required=False,
+    )
+
+    def __init__(self, index: int, current: dict = None):
+        super().__init__(title=f"Option {index + 1}")
+        self._index = index
+        if current:
+            self.label_input.default = current.get("label", "")
+            self.description_input.default = current.get("description", "") or ""
+            self.emoji_input.default = current.get("emoji", "") or ""
+            self.opening_message_input.default = current.get("opening_message", "") or ""
+            self.category_id_input.default = current.get("category_id", "") or ""
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        self._values = {
+            "label": self.label_input.value,
+            "description": self.description_input.value.strip() or None,
+            "emoji": self.emoji_input.value.strip() or None,
+            "opening_message": self.opening_message_input.value.strip() or None,
+            "category_id": self.category_id_input.value.strip() or None,
+        }
+
+
+# ── Option count prompt view ──────────────────────────────────────────────────
+
+class OptionCountView(discord.ui.View):
+    """Presents buttons 1–10 and 11–25 ranges to pick the number of options."""
+
+    def __init__(self):
+        super().__init__(timeout=60)
+        self._count = None
+        for n in range(1, 11):
+            btn = discord.ui.Button(
+                label=str(n),
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"count_{n}",
+            )
+            btn.callback = self._make_callback(n)
+            self.add_item(btn)
+
+    def _make_callback(self, n: int):
+        async def callback(interaction: discord.Interaction):
+            self._count = n
+            await interaction.response.defer()
+            self.stop()
+        return callback
 
 
 # ── Dropdown ──────────────────────────────────────────────────────────────────
@@ -200,15 +277,42 @@ class ModmailMenu(commands.Cog):
                 self.bot.add_view(ContactView(config["options"], placeholder))
             self._views_added = True
 
-    # ── Helper ────────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     async def _get_config(self, ctx) -> dict | None:
-        """Fetch config and send an error embed if missing."""
         config = await self.db.find_one({"_id": "config"})
         if not config:
             await ctx.send(embed=err("No config found. Run `.mmenu setup` first."))
             return None
         return config
+
+    async def _launch_modal(self, ctx, modal: discord.ui.Modal) -> bool:
+        """
+        Send a button that opens the given modal when clicked.
+        Returns True if the modal was submitted, False if it timed out.
+        """
+        class ModalLauncher(discord.ui.View):
+            def __init__(self_inner):
+                super().__init__(timeout=120)
+                self_inner.submitted = False
+
+            @discord.ui.button(label="Open", style=discord.ButtonStyle.primary)
+            async def open_btn(self_inner, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user != ctx.author:
+                    return await interaction.response.send_message(
+                        embed=err("Only the person who ran this command can use this."),
+                        ephemeral=True,
+                    )
+                await interaction.response.send_modal(modal)
+                await modal.wait()
+                self_inner.submitted = True
+                self_inner.stop()
+
+        launcher = ModalLauncher()
+        msg = await ctx.send(view=launcher)
+        await launcher.wait()
+        await msg.delete()
+        return launcher.submitted
 
     # ── Commands ──────────────────────────────────────────────────────────────
 
@@ -221,103 +325,64 @@ class ModmailMenu(commands.Cog):
     @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
     @mmenu.command(name="setup")
     async def mmenu_setup(self, ctx):
-        """Interactive wizard to configure the dropdown panel."""
+        """Configure the panel and options via modals."""
 
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel
+        # ── Step 1: panel settings modal ──────────────────────────────────────
+        settings_modal = PanelSettingsModal()
+        await ctx.send(embed=info(
+            "Click **Open** to set the panel title, description, color, and dropdown placeholder.",
+            title="Panel Setup — Step 1 of 2: Panel Settings",
+            bot=self.bot,
+        ))
+        submitted = await self._launch_modal(ctx, settings_modal)
 
-        def step(n: int, total: int, prompt: str) -> discord.Embed:
-            return info(prompt, title=f"Panel Setup — Step {n}/{total}", bot=self.bot)
+        if not submitted or not hasattr(settings_modal, "_values") or settings_modal._values is None:
+            return await ctx.send(embed=err("Setup cancelled or timed out."))
 
-        total = 5
-        try:
-            await ctx.send(embed=step(1, total, "What should the embed **title** be?"))
-            title = (await self.bot.wait_for("message", check=check, timeout=120)).content
+        panel_settings = settings_modal._values
 
-            await ctx.send(embed=step(2, total, "What should the embed **description** be?"))
-            description = (await self.bot.wait_for("message", check=check, timeout=120)).content
+        # ── Step 2: how many options? ─────────────────────────────────────────
+        await ctx.send(embed=info(
+            "How many dropdown options do you want? Select below (1–10).\n"
+            "If you need more than 10, run `.mmenu setup` again after — options are additive.",
+            title="Panel Setup — Step 2 of 2: Options",
+            bot=self.bot,
+        ))
+        count_view = OptionCountView()
+        count_msg = await ctx.send(view=count_view)
+        await count_view.wait()
+        await count_msg.delete()
 
-            await ctx.send(embed=step(
-                3, total,
-                "Embed color as a hex code (e.g. `#5865F2`), or `skip` for bot default:"
-            ))
-            color_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-            embed_color = None if color_raw.lower() == "skip" else color_raw.strip()
-            if embed_color and parse_color(embed_color) is None:
-                return await ctx.send(embed=err("Invalid hex color. Run `.mmenu setup` again."))
+        count = count_view._count
+        if count is None:
+            return await ctx.send(embed=err("Setup timed out. Run `.mmenu setup` again."))
 
-            await ctx.send(embed=step(
-                4, total,
-                "Dropdown placeholder text (shown before a user selects), or `skip` for default:"
-            ))
-            ph_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-            placeholder_text = "Select a topic..." if ph_raw.lower() == "skip" else ph_raw
-
-            await ctx.send(embed=step(5, total, "How many dropdown options do you want? (1–25)"))
-            count_msg = await self.bot.wait_for(
-                "message",
-                check=lambda m: check(m) and m.content.isdigit() and 1 <= int(m.content) <= 25,
-                timeout=60,
-            )
-            count = int(count_msg.content)
-
-            options = []
-            for i in range(count):
-                await ctx.send(embed=info(
-                    f"**Label** (shown in dropdown — max 100 chars):",
-                    title=f"Option {i+1}/{count}",
-                    bot=self.bot,
-                ))
-                label = (await self.bot.wait_for("message", check=check, timeout=120)).content[:100]
-
-                await ctx.send(embed=info("Short **description** (or `skip`):", bot=self.bot))
-                desc_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-                desc = None if desc_raw.lower() == "skip" else desc_raw[:100]
-
-                await ctx.send(embed=info("**Emoji** (or `skip`):", bot=self.bot))
-                emoji_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-                emoji = None if emoji_raw.lower() == "skip" else emoji_raw
-
-                await ctx.send(embed=info(
-                    "**Note** to post in the mod channel when this option is chosen (or `skip` for default):",
-                    bot=self.bot,
-                ))
-                msg_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-                opening_message = None if msg_raw.lower() == "skip" else msg_raw
-
-                await ctx.send(embed=info(
-                    "**Category ID** to route this option to (or `skip` for default category):",
-                    bot=self.bot,
-                ))
-                cat_raw = (await self.bot.wait_for("message", check=check, timeout=120)).content
-                category_id = None if cat_raw.lower() == "skip" else cat_raw.strip()
-
-                options.append({
-                    "label": label,
-                    "description": desc,
-                    "emoji": emoji,
-                    "opening_message": opening_message,
-                    "category_id": category_id,
-                })
-
-            await self.db.find_one_and_update(
-                {"_id": "config"},
-                {"$set": {
-                    "title": title,
-                    "description": description,
-                    "embed_color": embed_color,
-                    "placeholder_text": placeholder_text,
-                    "options": options,
-                }},
-                upsert=True,
-            )
-            await ctx.send(embed=ok(
-                "Config saved! Run `.mmenu post #channel` to post the panel.",
+        # ── Step 3: one modal per option ──────────────────────────────────────
+        options = []
+        for i in range(count):
+            option_modal = OptionModal(index=i)
+            await ctx.send(embed=info(
+                f"Click **Open** to configure option {i + 1} of {count}.",
+                title=f"Option {i + 1}/{count}",
                 bot=self.bot,
             ))
+            submitted = await self._launch_modal(ctx, option_modal)
 
-        except TimeoutError:
-            await ctx.send(embed=err("Setup timed out. Run `.mmenu setup` to try again."))
+            if not submitted or not hasattr(option_modal, "_values"):
+                return await ctx.send(embed=err(f"Setup cancelled at option {i + 1}."))
+
+            options.append(option_modal._values)
+
+        # ── Save ──────────────────────────────────────────────────────────────
+        await self.db.find_one_and_update(
+            {"_id": "config"},
+            {"$set": {**panel_settings, "options": options}},
+            upsert=True,
+        )
+        await ctx.send(embed=ok(
+            f"Setup complete with {count} option(s)! Run `.mmenu post #channel` to post the panel.",
+            bot=self.bot,
+        ))
 
     @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
     @mmenu.command(name="edit")
@@ -327,39 +392,26 @@ class ModmailMenu(commands.Cog):
         if config is None:
             return
 
-        class LaunchModal(discord.ui.View):
-            def __init__(self_inner):
-                super().__init__(timeout=60)
+        settings_modal = PanelSettingsModal(current=config)
+        await ctx.send(embed=info(
+            "Click **Open** to edit the panel settings.\n"
+            "To edit individual options use `.mmenu setup` to reconfigure from scratch.",
+            bot=self.bot,
+        ))
+        submitted = await self._launch_modal(ctx, settings_modal)
 
-            @discord.ui.button(label="Open Editor", style=discord.ButtonStyle.primary)
-            async def open_modal(self_inner, interaction: discord.Interaction, button: discord.ui.Button):
-                if interaction.user != ctx.author:
-                    return await interaction.response.send_message(
-                        embed=err("Only the person who ran this command can use this."),
-                        ephemeral=True,
-                    )
-                modal = PanelEditModal(current=config)
-                await interaction.response.send_modal(modal)
-                await modal.wait()
+        if not submitted or not hasattr(settings_modal, "_values") or settings_modal._values is None:
+            return await ctx.send(embed=err("Edit cancelled or timed out."))
 
-                if not hasattr(modal, "_values") or modal._values is None:
-                    return
-
-                await self.db.find_one_and_update(
-                    {"_id": "config"},
-                    {"$set": modal._values},
-                    upsert=True,
-                )
-                self_inner.stop()
-
-        await ctx.send(
-            embed=info(
-                "Click below to edit the panel title, description, color, and placeholder text.\n"
-                "To edit individual options, run `.mmenu setup` to reconfigure from scratch.",
-                bot=self.bot,
-            ),
-            view=LaunchModal(),
+        await self.db.find_one_and_update(
+            {"_id": "config"},
+            {"$set": settings_modal._values},
+            upsert=True,
         )
+        await ctx.send(embed=ok(
+            "Panel settings updated. Run `.mmenu post #channel` to repost with the new settings.",
+            bot=self.bot,
+        ))
 
     @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
     @mmenu.command(name="post")
