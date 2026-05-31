@@ -22,7 +22,7 @@ A [Modmail](https://github.com/modmail-dev/Modmail) plugin that posts a persiste
 In your Discord server, run:
 
 ```
-?plugin add yourusername/modmail-plugins/modmail_menu
+?plugin add beats1873/modmail_plugins/modmail_menu
 ```
 
 For local testing:
@@ -59,7 +59,7 @@ After submitting the panel settings, you will be asked how many options you want
 ### 2. Post the panel
 
 ```
-.mmenu post #channel-name
+.mmenu post <channelID>
 ```
 
 Posts the configured embed with the dropdown into the specified channel.
@@ -78,7 +78,7 @@ All commands require the `Administrator` permission level.
 |---|---|
 | `.mmenu setup` | Run the full setup flow via modals |
 | `.mmenu edit` | Edit panel title, description, color, and placeholder via a modal |
-| `.mmenu post #channel` | Post the panel embed into a channel |
+| `.mmenu post <channelID>` | Post the panel embed into a channel |
 | `.mmenu clear` | Delete the panel message and wipe the config |
 
 ---
@@ -88,14 +88,14 @@ All commands require the `Administrator` permission level.
 After pushing changes to GitHub:
 
 ```
-?plugin update yourusername/modmail-plugins/modmail_menu
+?plugin update beats1873/modmail_plugins/modmail_menu
 ```
 
 Or remove and re-add:
 
 ```
-?plugin remove yourusername/modmail-plugins/modmail_menu
-?plugin add yourusername/modmail-plugins/modmail_menu
+?plugin remove beats1873/modmail_plugins/modmail_menu
+?plugin add beats1873/modmail_plugins/modmail_menu
 ```
 
 ---
