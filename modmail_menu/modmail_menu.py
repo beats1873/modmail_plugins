@@ -528,6 +528,13 @@ class ModmailMenu(commands.Cog):
             await self.db.find_one_and_delete({"_id": "config"})
         await ctx.send(embed=ok("Panel cleared.", bot=self.bot))
 
+    @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
+    @mmenu.command(name="debug")
+    async def mmenu_debug(self, ctx):
+        """Debug block list."""
+        blocked = self.bot.config.get("blocked")
+        await ctx.send(f"Type: `{type(blocked)}`\nValue: `{blocked}`")
+
 
 async def setup(bot):
     await bot.add_cog(ModmailMenu(bot))
