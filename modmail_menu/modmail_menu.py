@@ -263,7 +263,7 @@ class SubmitButton(discord.ui.Button):
             label="Open Ticket",
             style=discord.ButtonStyle.green,
             custom_id="modmail_menu:submit",
-            emoji=":ring_buoy:",
+            emoji="🛟",
         )
 
     async def callback(self, interaction: discord.Interaction):
