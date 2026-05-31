@@ -260,10 +260,10 @@ class ContactSelect(discord.ui.Select):
 class SubmitButton(discord.ui.Button):
     def __init__(self):
         super().__init__(
-            label="Open Thread",
+            label="Open Ticket",
             style=discord.ButtonStyle.green,
             custom_id="modmail_menu:submit",
-            emoji="📩",
+            emoji=":ring_buoy:",
         )
 
     async def callback(self, interaction: discord.Interaction):
