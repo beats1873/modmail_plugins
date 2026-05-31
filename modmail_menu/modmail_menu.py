@@ -42,17 +42,12 @@ def info(description: str, title: str = None, bot=None) -> discord.Embed:
 
 # ── Block check helper ────────────────────────────────────────────────────────
 
-async def is_blocked(bot, user_id: int) -> bool:
+def is_blocked(bot, user_id: int) -> bool:
     """
     Returns True if the user is blocked in Modmail's config.
-    Handles both async and non-async bot.config.get gracefully.
+    bot.config.get("blocked") returns a plain dict of {str(user_id): reason}.
     """
-    try:
-        blocked = bot.config.get("blocked")
-        if hasattr(blocked, "__await__"):
-            blocked = await blocked
-    except Exception:
-        return False
+    blocked = bot.config.get("blocked")
     return bool(blocked and str(user_id) in blocked)
 
 
@@ -197,7 +192,7 @@ async def open_thread(interaction: discord.Interaction, chosen: dict):
     user = interaction.user
 
     # ── Block check ──────────────────────────────────────────────────────────
-    if await is_blocked(bot, user.id):
+    if is_blocked(bot, user.id):
         return await interaction.followup.send(
             embed=err("You are unable to open a ticket at this time."),
             ephemeral=True,
@@ -274,9 +269,8 @@ class ContactSelect(discord.ui.Select):
         self.options_config = options_config
 
     async def callback(self, interaction: discord.Interaction):
-        # Block check on selection so blocked users get instant feedback
-        # and can never reach the submit button successfully.
-        if await is_blocked(interaction.client, interaction.user.id):
+        # Block check on selection so blocked users get instant feedback.
+        if is_blocked(interaction.client, interaction.user.id):
             return await interaction.response.send_message(
                 embed=err("You are unable to open a ticket at this time."),
                 ephemeral=True,
