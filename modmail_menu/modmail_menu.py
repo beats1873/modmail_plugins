@@ -522,21 +522,7 @@ class ModmailMenu(commands.Cog):
             await self.db.find_one_and_delete({"_id": "config"})
         await ctx.send(embed=ok("Panel cleared.", bot=self.bot))
 
-    @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
-    @mmenu.command(name="debug")
-    async def mmenu_debug(self, ctx, user: discord.Member = None):
-        """Debug block list. Pass a user to test if they are blocked."""
-        blocked = self.bot.config.get("blocked")
-        target = user or ctx.author
-        key = str(target.id)
-        in_blocked = key in blocked if blocked else False
-        result = is_blocked(self.bot, target.id)
-        await ctx.send(
-            f"**Block dict:** `{blocked}`\n"
-            f"**Checking ID:** `{key}`\n"
-            f"**Key in dict:** `{in_blocked}`\n"
-            f"**is_blocked() result:** `{result}`"
-        )
+
 
 
 async def setup(bot):
