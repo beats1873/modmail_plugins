@@ -22,13 +22,13 @@ A [Modmail](https://github.com/modmail-dev/Modmail) plugin that posts a persiste
 In your Discord server, run:
 
 ```
-?plugin add beats1873/modmail_plugins/modmail_menu
+?plugins add beats1873/modmail_plugins/modmail_menu
 ```
 
 For local testing:
 
 ```
-?plugin load @local/modmail_menu
+?plugins load @local/modmail_menu
 ```
 
 > **Note:** The folder and file must use underscores, not hyphens: `modmail_menu/modmail_menu.py`
@@ -88,14 +88,14 @@ All commands require the `Administrator` permission level.
 After pushing changes to GitHub:
 
 ```
-?plugin update beats1873/modmail_plugins/modmail_menu
+?plugins update beats1873/modmail_plugins/modmail_menu
 ```
 
 Or remove and re-add:
 
 ```
-?plugin remove beats1873/modmail_plugins/modmail_menu
-?plugin add beats1873/modmail_plugins/modmail_menu
+?plugins remove beats1873/modmail_plugins/modmail_menu
+?plugins add beats1873/modmail_plugins/modmail_menu
 ```
 
 ---
