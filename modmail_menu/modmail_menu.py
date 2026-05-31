@@ -294,7 +294,7 @@ class SubmitButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # Block check again on submit as a second line of defense.
-        if await is_blocked(interaction.client, interaction.user.id):
+        if is_blocked(interaction.client, interaction.user.id):
             return await interaction.followup.send(
                 embed=err("You are unable to open a ticket at this time."),
                 ephemeral=True,
@@ -524,10 +524,19 @@ class ModmailMenu(commands.Cog):
 
     @checks.has_permissions(PermissionLevel.ADMINISTRATOR)
     @mmenu.command(name="debug")
-    async def mmenu_debug(self, ctx):
-        """Debug block list."""
+    async def mmenu_debug(self, ctx, user: discord.Member = None):
+        """Debug block list. Pass a user to test if they are blocked."""
         blocked = self.bot.config.get("blocked")
-        await ctx.send(f"Type: `{type(blocked)}`\nValue: `{blocked}`")
+        target = user or ctx.author
+        key = str(target.id)
+        in_blocked = key in blocked if blocked else False
+        result = is_blocked(self.bot, target.id)
+        await ctx.send(
+            f"**Block dict:** `{blocked}`\n"
+            f"**Checking ID:** `{key}`\n"
+            f"**Key in dict:** `{in_blocked}`\n"
+            f"**is_blocked() result:** `{result}`"
+        )
 
 
 async def setup(bot):
